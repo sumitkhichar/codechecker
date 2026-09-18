@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Code Helper</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>⚙️ AI Code Helper</h1>
+      <p class="subtitle">Write new code or debug existing code, powered by your own API key.</p>
+    </header>
+
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="write">✍️ Write Code</button>
+      <button class="tab-btn" data-tab="debug">🐞 Debug Code</button>
+    </nav>
+
+    <!-- WRITE TAB -->
+    <section id="write" class="tab-panel active">
+      <label for="write-language">Language</label>
+      <select id="write-language">
+        <option value="python">Python</option>
+        <option value="javascript">JavaScript</option>
+        <option value="java">Java</option>
+        <option value="cpp">C++</option>
+        <option value="c">C</option>
+        <option value="typescript">TypeScript</option>
+        <option value="go">Go</option>
+        <option value="sql">SQL</option>
+        <option value="html">HTML/CSS</option>
+      </select>
+
+      <label for="write-description">Describe what you want the code to do</label>
+      <textarea id="write-description" rows="6" placeholder="e.g. A function that reverses a linked list, with edge cases handled."></textarea>
+      <button id="write-btn" class="primary-btn">Generate Code</button>
+
+      <div id="write-loading" class="loading hidden">Generating…</div>
+      <pre id="write-output" class="output hidden"></pre>
+    </section>
+
+    <!-- DEBUG TAB -->
+    <section id="debug" class="tab-panel">
+      <label for="debug-language">Language</label>
+      <select id="debug-language">
+        <option value="python">Python</option>
+        <option value="javascript">JavaScript</option>
+        <option value="java">Java</option>
+        <option value="cpp">C++</option>
+        <option value="c">C</option>
+        <option value="typescript">TypeScript</option>
+        <option value="go">Go</option>
+        <option value="sql">SQL</option>
+      </select>
+
+      <label for="debug-code">Paste your code</label>
+      <textarea id="debug-code" rows="10" placeholder="Paste the code that's broken or needs review..."></textarea>
+
+      <label for="debug-error">Error message / description of the issue (optional)</label>
+      <textarea id="debug-error" rows="3" placeholder="e.g. IndexError: list index out of range on line 12"></textarea>
+
+      <button id="debug-btn" class="primary-btn">Debug Code</button>
+
+      <div id="debug-loading" class="loading hidden">Analyzing…</div>
+      <pre id="debug-output" class="output hidden"></pre>
+    </section>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
