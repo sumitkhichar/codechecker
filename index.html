@@ -5,8 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AI Code Helper</title>
 <link rel="stylesheet" href="style.css">
+<!-- KaTeX Math CSS -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<!-- Prism Syntax Highlighting Theme -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css">
 </head>
 <body>
+  <!-- Fixed Toast Container -->
+  <div id="toast-container" class="toast-container"></div>
+
   <div class="app">
     <header>
       <h1>⚙️ AI Code Helper</h1>
@@ -16,7 +23,12 @@
     <nav class="tabs">
       <button class="tab-btn active" data-tab="write">✍️ Write Code</button>
       <button class="tab-btn" data-tab="debug">🐞 Debug Code</button>
+      <button class="tab-btn" data-tab="explain">📘 Explain</button>
+      <button class="tab-btn" data-tab="leetcode">🧩 LeetCode</button>
     </nav>
+
+    <!-- Shared voice status bar — hidden by default, shown while recording or on error -->
+    <div id="voice-status" class="voice-status hidden"></div>
 
     <!-- WRITE TAB -->
     <section id="write" class="tab-panel active">
@@ -33,41 +45,347 @@
         <option value="html">HTML/CSS</option>
       </select>
 
-      <label for="write-description">Describe what you want the code to do</label>
-      <textarea id="write-description" rows="6" placeholder="e.g. A function that reverses a linked list, with edge cases handled."></textarea>
+      <div class="field-header">
+        <label for="write-description">Describe what you want (or upload pseudocode/diagram)</label>
+        <button type="button" class="mic-btn" data-target="write-description" title="Speak your description">🎤</button>
+      </div>
+      <textarea id="write-description" rows="5" placeholder="Describe what you want the code to do, or add notes for an uploaded photo..."></textarea>
+      <div id="write-error-msg" class="field-error-msg hidden"></div>
+
+      <div class="upload-section">
+        <input type="file" id="write-image-input" accept="image/*" capture="environment" class="hidden-file-input">
+        <button type="button" id="write-upload-btn" class="secondary-btn">📷 Upload / Take Photo</button>
+        <div id="write-image-preview" class="image-preview hidden">
+          <img id="write-preview-img" src="" alt="Thumbnail">
+          <div class="preview-info">
+            <span id="write-preview-name" class="preview-filename"></span>
+            <span id="write-preview-size" class="preview-filesize"></span>
+          </div>
+          <button type="button" id="write-remove-img-btn" class="remove-img-btn" title="Remove photo">&times;</button>
+        </div>
+      </div>
+
       <button id="write-btn" class="primary-btn">Generate Code</button>
 
-      <div id="write-loading" class="loading hidden">Generating…</div>
-      <pre id="write-output" class="output hidden"></pre>
+      <div id="write-loading" class="skeleton-loader hidden">
+        <div class="skeleton-header">
+          <span class="skeleton-badge">⚡ AI Assistant</span>
+          <span class="skeleton-msg">Generating code…</span>
+        </div>
+        <div class="skeleton-bar" style="width: 45%;"></div>
+        <div class="skeleton-bar" style="width: 90%;"></div>
+        <div class="skeleton-bar" style="width: 75%;"></div>
+        <div class="skeleton-bar" style="width: 95%;"></div>
+        <div class="skeleton-bar" style="width: 60%;"></div>
+      </div>
+      <div id="write-output" class="output markdown-body hidden"></div>
     </section>
 
     <!-- DEBUG TAB -->
     <section id="debug" class="tab-panel">
-      <label for="debug-language">Language</label>
+      <div class="field-header">
+        <label for="debug-language">Language</label>
+        <span id="detected-badge" class="detected-badge">🤖 Auto-detecting from code...</span>
+      </div>
       <select id="debug-language">
+        <option value="auto">Auto-detect (from keywords/image)</option>
+        <option value="python">Python</option>
+        <option value="javascript">JavaScript</option>
+        <option value="typescript">TypeScript</option>
+        <option value="java">Java</option>
+        <option value="cpp">C++</option>
+        <option value="c">C</option>
+        <option value="go">Go</option>
+        <option value="sql">SQL</option>
+        <option value="html">HTML/CSS</option>
+      </select>
+
+      <div class="field-header">
+        <label for="debug-code">Paste your code (or upload code photo)</label>
+        <button type="button" class="mic-btn" data-target="debug-code" title="Speak your code description">🎤</button>
+      </div>
+      <textarea id="debug-code" rows="8" placeholder="Paste the code that's broken, or leave blank if uploading a photo..."></textarea>
+      <div id="debug-error-msg" class="field-error-msg hidden"></div>
+
+      <div class="upload-section">
+        <input type="file" id="debug-image-input" accept="image/*" capture="environment" class="hidden-file-input">
+        <button type="button" id="debug-upload-btn" class="secondary-btn">📷 Upload / Take Code Photo</button>
+        <div id="debug-image-preview" class="image-preview hidden">
+          <img id="debug-preview-img" src="" alt="Thumbnail">
+          <div class="preview-info">
+            <span id="debug-preview-name" class="preview-filename"></span>
+            <span id="debug-preview-size" class="preview-filesize"></span>
+          </div>
+          <button type="button" id="debug-remove-img-btn" class="remove-img-btn" title="Remove photo">&times;</button>
+        </div>
+      </div>
+
+      <div class="field-header">
+        <label for="debug-error">Error message / description of the issue (optional)</label>
+        <button type="button" class="mic-btn" data-target="debug-error" title="Speak the error message">🎤</button>
+      </div>
+      <textarea id="debug-error" rows="3" placeholder="e.g. IndexError: list index out of range on line 12"></textarea>
+
+      <button id="debug-btn" class="primary-btn">Debug Code</button>
+
+      <div id="debug-loading" class="skeleton-loader hidden">
+        <div class="skeleton-header">
+          <span class="skeleton-badge">🐞 Debugger</span>
+          <span class="skeleton-msg">Analyzing code & finding bugs…</span>
+        </div>
+        <div class="skeleton-bar" style="width: 50%;"></div>
+        <div class="skeleton-bar" style="width: 85%;"></div>
+        <div class="skeleton-bar" style="width: 70%;"></div>
+        <div class="skeleton-bar" style="width: 92%;"></div>
+        <div class="skeleton-bar" style="width: 55%;"></div>
+      </div>
+      <div id="debug-output" class="output markdown-body hidden"></div>
+    </section>
+
+    <!-- EXPLAIN TAB -->
+    <section id="explain" class="tab-panel">
+
+      <!-- Topic: dropdown of common topics + free-text fallback -->
+      <label for="explain-topic-select">Choose a topic</label>
+      <select id="explain-topic-select">
+        <option value="">— pick a common topic —</option>
+        <optgroup label="Sorting">
+          <option value="Bubble Sort">Bubble Sort</option>
+          <option value="Selection Sort">Selection Sort</option>
+          <option value="Insertion Sort">Insertion Sort</option>
+          <option value="Merge Sort">Merge Sort</option>
+          <option value="Quick Sort">Quick Sort</option>
+          <option value="Heap Sort">Heap Sort</option>
+          <option value="Counting Sort">Counting Sort</option>
+          <option value="Radix Sort">Radix Sort</option>
+        </optgroup>
+        <optgroup label="Searching">
+          <option value="Binary Search">Binary Search</option>
+          <option value="Linear Search">Linear Search</option>
+          <option value="BFS (Breadth-First Search)">BFS (Breadth-First Search)</option>
+          <option value="DFS (Depth-First Search)">DFS (Depth-First Search)</option>
+        </optgroup>
+        <optgroup label="Data Structures">
+          <option value="Array">Array</option>
+          <option value="Linked List">Linked List</option>
+          <option value="Stack">Stack</option>
+          <option value="Queue">Queue</option>
+          <option value="Hash Map / Hash Table">Hash Map / Hash Table</option>
+          <option value="Binary Tree">Binary Tree</option>
+          <option value="Binary Search Tree (BST)">Binary Search Tree (BST)</option>
+          <option value="Min-Heap / Max-Heap">Min-Heap / Max-Heap</option>
+          <option value="Trie">Trie</option>
+          <option value="Graph">Graph</option>
+        </optgroup>
+        <optgroup label="Graph Algorithms">
+          <option value="Dijkstra's Algorithm">Dijkstra's Algorithm</option>
+          <option value="Bellman-Ford Algorithm">Bellman-Ford Algorithm</option>
+          <option value="Floyd-Warshall Algorithm">Floyd-Warshall Algorithm</option>
+          <option value="Kruskal's Algorithm (MST)">Kruskal's Algorithm (MST)</option>
+          <option value="Prim's Algorithm (MST)">Prim's Algorithm (MST)</option>
+          <option value="Topological Sort">Topological Sort</option>
+        </optgroup>
+        <optgroup label="Dynamic Programming">
+          <option value="Dynamic Programming (overview)">Dynamic Programming (overview)</option>
+          <option value="0/1 Knapsack">0/1 Knapsack</option>
+          <option value="Longest Common Subsequence (LCS)">Longest Common Subsequence (LCS)</option>
+          <option value="Longest Increasing Subsequence (LIS)">Longest Increasing Subsequence (LIS)</option>
+          <option value="Coin Change Problem">Coin Change Problem</option>
+          <option value="Matrix Chain Multiplication">Matrix Chain Multiplication</option>
+        </optgroup>
+        <optgroup label="Other Algorithms">
+          <option value="Divide and Conquer">Divide and Conquer</option>
+          <option value="Greedy Algorithms">Greedy Algorithms</option>
+          <option value="Backtracking">Backtracking</option>
+          <option value="Sliding Window">Sliding Window</option>
+          <option value="Two Pointer Technique">Two Pointer Technique</option>
+          <option value="Union-Find (Disjoint Set)">Union-Find (Disjoint Set)</option>
+        </optgroup>
+        <option value="__custom__">✏️ Type my own topic…</option>
+      </select>
+
+      <div id="explain-custom-wrap" class="hidden">
+        <div class="field-header">
+          <label for="explain-topic-custom">Your topic</label>
+          <button type="button" class="mic-btn" data-target="explain-topic-custom" title="Speak the topic">🎤</button>
+        </div>
+        <textarea id="explain-topic-custom" rows="2" placeholder="e.g. Red-Black Trees, Segment Trees, Aho-Corasick…"></textarea>
+      </div>
+      <div id="explain-error-msg" class="field-error-msg hidden"></div>
+
+      <!-- Depth toggle -->
+      <div class="explain-depth-row">
+        <span class="depth-label">Depth:</span>
+        <label class="depth-option">
+          <input type="radio" name="explain-depth" value="overview" checked> Quick overview
+        </label>
+        <label class="depth-option">
+          <input type="radio" name="explain-depth" value="deep"> Deep dive with complexity proofs
+        </label>
+      </div>
+
+      <!-- Language for code examples -->
+      <label for="explain-language">Code examples in</label>
+      <select id="explain-language">
         <option value="python">Python</option>
         <option value="javascript">JavaScript</option>
         <option value="java">Java</option>
         <option value="cpp">C++</option>
         <option value="c">C</option>
-        <option value="typescript">TypeScript</option>
         <option value="go">Go</option>
-        <option value="sql">SQL</option>
       </select>
 
-      <label for="debug-code">Paste your code</label>
-      <textarea id="debug-code" rows="10" placeholder="Paste the code that's broken or needs review..."></textarea>
+      <button id="explain-btn" class="primary-btn">📘 Explain</button>
 
-      <label for="debug-error">Error message / description of the issue (optional)</label>
-      <textarea id="debug-error" rows="3" placeholder="e.g. IndexError: list index out of range on line 12"></textarea>
+      <div id="explain-loading" class="skeleton-loader hidden">
+        <div class="skeleton-header">
+          <span class="skeleton-badge">📘 CS Educator</span>
+          <span class="skeleton-msg">Preparing structured explanation & complexity proofs…</span>
+        </div>
+        <div class="skeleton-bar" style="width: 50%;"></div>
+        <div class="skeleton-bar" style="width: 92%;"></div>
+        <div class="skeleton-bar" style="width: 80%;"></div>
+        <div class="skeleton-bar" style="width: 88%;"></div>
+        <div class="skeleton-bar" style="width: 65%;"></div>
+      </div>
+      <div id="explain-output" class="output markdown-body hidden"></div>
+    </section>
 
-      <button id="debug-btn" class="primary-btn">Debug Code</button>
+    <!-- LEETCODE TAB -->
+    <section id="leetcode" class="tab-panel">
 
-      <div id="debug-loading" class="loading hidden">Analyzing…</div>
-      <pre id="debug-output" class="output hidden"></pre>
+      <!-- Problem number lookup -->
+      <div class="lc-lookup-row">
+        <div class="lc-number-wrap">
+          <label for="lc-number">Problem #</label>
+          <input type="number" id="lc-number" min="1" max="9999"
+                 placeholder="e.g. 1" class="lc-number-input">
+        </div>
+        <button id="lc-fetch-btn" class="primary-btn">Fetch Problem</button>
+      </div>
+      <div id="lc-number-error-msg" class="field-error-msg hidden"></div>
+      <div id="lc-fetch-loading" class="skeleton-loader hidden">
+        <div class="skeleton-header">
+          <span class="skeleton-badge">🧩 LeetCode</span>
+          <span class="skeleton-msg">Fetching problem details…</span>
+        </div>
+        <div class="skeleton-bar" style="width: 40%;"></div>
+        <div class="skeleton-bar" style="width: 75%;"></div>
+      </div>
+      <div id="lc-fetch-error" class="lc-error hidden"></div>
+
+      <!-- Problem card — hidden until a problem is loaded -->
+      <div id="lc-card" class="lc-card hidden">
+        <div class="lc-card-header">
+          <div class="lc-title-row">
+            <span id="lc-number-badge" class="lc-num-badge">#1</span>
+            <h2 id="lc-title" class="lc-title">Two Sum</h2>
+            <span id="lc-difficulty" class="lc-diff-badge">Easy</span>
+          </div>
+          <a id="lc-link" href="#" target="_blank" rel="noopener" class="lc-ext-link">
+            Open on LeetCode ↗
+          </a>
+        </div>
+
+        <!-- Statement -->
+        <div id="lc-statement" class="lc-statement markdown-body"></div>
+
+        <!-- Hints — collapsed, revealed one by one -->
+        <div id="lc-hints-section" class="lc-hints-section hidden">
+          <button type="button" id="lc-hint-btn" class="secondary-btn lc-hint-btn">
+            💡 Show Hint <span id="lc-hint-counter">(1 of ?)</span>
+          </button>
+          <div id="lc-hint-text" class="lc-hint-text hidden"></div>
+        </div>
+
+        <!-- Starter template -->
+        <div id="lc-template-section" class="lc-template-section">
+          <div class="lc-template-header">
+            <span class="lc-section-label">Python Starter</span>
+            <button type="button" id="lc-copy-template" class="lc-copy-btn" title="Copy template">📋 Copy</button>
+          </div>
+          <pre id="lc-template" class="lc-template-pre"></pre>
+        </div>
+      </div>
+
+      <!-- Approach section — revealed after problem loads -->
+      <div id="lc-approach-section" class="lc-approach-section hidden">
+        <div class="field-header">
+          <label for="lc-approach">Your Approach</label>
+          <button type="button" class="mic-btn" data-target="lc-approach"
+                  title="Speak your approach">🎤</button>
+        </div>
+        <textarea id="lc-approach" rows="5"
+          placeholder="Describe your approach — data structure, algorithm, time complexity idea… (don't worry about code yet)"></textarea>
+        <div id="lc-approach-error-msg" class="field-error-msg hidden"></div>
+
+        <button id="lc-review-btn" class="primary-btn">🤖 Review My Approach</button>
+        <div id="lc-review-loading" class="skeleton-loader hidden">
+          <div class="skeleton-header">
+            <span class="skeleton-badge">🤖 LeetCode Coach</span>
+            <span class="skeleton-msg">Evaluating your approach vs. community standard…</span>
+          </div>
+          <div class="skeleton-bar" style="width: 45%;"></div>
+          <div class="skeleton-bar" style="width: 85%;"></div>
+          <div class="skeleton-bar" style="width: 70%;"></div>
+          <div class="skeleton-bar" style="width: 90%;"></div>
+          <div class="skeleton-bar" style="width: 55%;"></div>
+        </div>
+        <div id="lc-review-output" class="output markdown-body lc-review-box hidden"></div>
+      </div>
+
+      <!-- Live Code Execution & Test Runner Section -->
+      <div id="lc-runner-section" class="lc-runner-section hidden">
+        <div class="field-header">
+          <label for="lc-code-editor">Python Solution & Test Runner</label>
+          <span class="runner-badge">⚡ Subprocess Execution</span>
+        </div>
+        <textarea id="lc-code-editor" class="code-editor-textarea" rows="9" spellcheck="false"
+                  placeholder="# Write or edit your Python solution here..."></textarea>
+        <div id="lc-code-error-msg" class="field-error-msg hidden"></div>
+
+        <div class="runner-btn-row">
+          <button id="lc-run-btn" class="primary-btn run-btn">▶ Run Against Test Cases</button>
+          <button id="lc-reset-code-btn" class="secondary-btn">↺ Reset to Starter Code</button>
+        </div>
+
+        <!-- Runner Skeleton Loading -->
+        <div id="lc-run-loading" class="skeleton-loader hidden">
+          <div class="skeleton-header">
+            <span class="skeleton-badge">⚡ Python Runner</span>
+            <span class="skeleton-msg">Executing code in subprocess against test cases…</span>
+          </div>
+          <div class="skeleton-bar" style="width: 50%;"></div>
+          <div class="skeleton-bar" style="width: 80%;"></div>
+        </div>
+
+        <!-- Test Results Box -->
+        <div id="lc-test-results" class="lc-test-results hidden">
+          <div class="test-results-header">
+            <span id="test-summary-badge" class="test-summary-badge"></span>
+            <span id="test-runtime-label" class="test-runtime-label"></span>
+          </div>
+          <div id="test-cases-list" class="test-cases-list"></div>
+          <pre id="test-stdout" class="test-stdout hidden"></pre>
+        </div>
+      </div>
+
     </section>
   </div>
 
+  <!-- Marked.js Markdown Parser (local with CDN fallback) -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script>if (!window.marked) document.write('<script src="marked.min.js"><\\/script>')</script>
+
+  <!-- KaTeX Math Rendering Engine -->
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+
+  <!-- Prism.js Syntax Highlighting + Autoloader -->
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+
+  <!-- App logic -->
   <script src="script.js"></script>
 </body>
 </html>
