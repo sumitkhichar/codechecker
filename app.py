@@ -23,7 +23,7 @@ LC_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "leetcode.
 def get_gemini_config():
     """Get sanitized GEMINI_API_KEY and GEMINI_MODEL."""
     api_key = (os.environ.get("GEMINI_API_KEY") or os.environ.get("API_KEY") or "").strip().strip('"\'')
-    model = (os.environ.get("GEMINI_MODEL") or "gemini-1.5-flash").strip().strip('"\'')
+    model = (os.environ.get("GEMINI_MODEL") or "gemini-flash-lite-latest").strip().strip('"\'')
 
     if not api_key:
         raise RuntimeError(
@@ -68,11 +68,16 @@ def call_model(system_prompt: str, user_prompt: str, image_data: dict = None) ->
             "parts": [{"text": system_prompt}]
         }
 
-    # Candidate models to try in case of 503 high demand
-    models_to_try = [primary_model]
-    for fallback in ["gemini-2.5-flash", "gemini-1.5-flash"]:
-        if fallback not in models_to_try:
-            models_to_try.append(fallback)
+    # Candidate models to try: prioritize models with unexhausted free quota and fast response
+    models_to_try = []
+    for m in [
+        primary_model,
+        "gemini-flash-lite-latest",
+        "gemini-3.1-flash-lite",
+        "gemini-flash-latest",
+    ]:
+        if m and m not in models_to_try:
+            models_to_try.append(m)
 
     last_err = None
     for model_name in models_to_try:
@@ -85,7 +90,7 @@ def call_model(system_prompt: str, user_prompt: str, image_data: dict = None) ->
         # Try up to 2 attempts per model
         for attempt in range(2):
             try:
-                response = httpx.post(url, headers=headers, json=payload, timeout=60.0)
+                response = httpx.post(url, headers=headers, json=payload, timeout=25.0)
                 if response.status_code == 200:
                     data = response.json()
                     candidates = data.get("candidates", [])
@@ -95,14 +100,32 @@ def call_model(system_prompt: str, user_prompt: str, image_data: dict = None) ->
                     text_pieces = [p.get("text", "") for p in p_parts if "text" in p]
                     return "\n".join(text_pieces).strip()
 
-                # Handle 503 (high demand) or 429 (rate limit) with retry
-                if response.status_code in (503, 429):
+                # Handle 404 (model deprecated/not found) -> try next candidate model immediately
+                if response.status_code == 404:
                     try:
                         err_msg = response.json().get("error", {}).get("message", response.text)
                     except Exception:
                         err_msg = response.text
-                    last_err = f"Gemini API Error ({response.status_code}) on {model_name}: {err_msg}"
-                    time.sleep(1.5)
+                    last_err = f"Gemini API Error (404) on {model_name}: {err_msg}"
+                    break
+
+                # Handle 429 (quota exceeded on this model) -> switch to next candidate model immediately
+                if response.status_code == 429:
+                    try:
+                        err_msg = response.json().get("error", {}).get("message", response.text)
+                    except Exception:
+                        err_msg = response.text
+                    last_err = f"Gemini API Quota (429) on {model_name}: {err_msg}"
+                    break
+
+                # Handle 503 (transient high demand) with retry
+                if response.status_code == 503:
+                    try:
+                        err_msg = response.json().get("error", {}).get("message", response.text)
+                    except Exception:
+                        err_msg = response.text
+                    last_err = f"Gemini API Error (503) on {model_name}: {err_msg}"
+                    time.sleep(1.0)
                     continue
                 else:
                     try:
@@ -431,6 +454,48 @@ def leetcode_review():
         f"Problem #{number}: {title}\n\n"
         f"Problem Statement:\n{stmt_excerpt}\n\n"
         f"Student's Approach:\n{approach}"
+    )
+
+    try:
+        result = call_model(system_prompt, user_prompt)
+        return jsonify({"result": result})
+    except Exception as exc:
+        traceback.print_exc()
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/leetcode/code-help", methods=["POST"])
+def leetcode_code_help():
+    """
+    In-tab AI Code Helper:
+    Reviews the student's solution code in Python, C++, Java, or JavaScript.
+    Provides targeted guidance, checks edge cases, and suggests fixes.
+    """
+    data = request.get_json(force=True) or {}
+    number = data.get("number") or data.get("problem_number")
+    title = (data.get("title") or "").strip()
+    language = (data.get("language") or "Python").strip()
+    code = (data.get("code") or "").strip()
+
+    if not code:
+        return jsonify({"error": "Please write or paste your code before requesting AI help."}), 400
+
+    system_prompt = (
+        f"You are a friendly and expert LeetCode AI technical mentor.\n"
+        f"The student is solving LeetCode #{number}: {title} in {language}.\n\n"
+        f"Review their code and provide structured feedback:\n"
+        f"1. **Language & Syntax Status**: Is the {language} code syntactically sound and following standard LeetCode structure?\n"
+        f"2. **Algorithm & Complexity**: What algorithm are they implementing and what is its Big-O time and space complexity?\n"
+        f"3. **Bugs & Edge Cases**: Are there unhandled edge cases, boundary conditions, or logical bugs?\n"
+        f"4. **Guiding Hint**: Give a precise hint on how to improve or complete the solution without spoiling the full final answer.\n\n"
+        f"Format with clear Markdown H3 ('### ') headings and {language} code snippets."
+    )
+
+    user_prompt = (
+        f"Problem #{number}: {title}\n"
+        f"Selected Language: {language}\n\n"
+        f"Student's Code:\n```{language.lower()}\n{code}\n```\n\n"
+        f"Please analyze my code, point out any bugs or edge cases, and guide me on how to fix or optimize it."
     )
 
     try:
