@@ -213,6 +213,89 @@ function handleApiError(err) {
   }
 }
 
+function escapeHtml(str) {
+  if (!str) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+// ---- Unified AI Panel State Controller ----
+function setAiPanelState(config) {
+  const {
+    btnEl,
+    loadingEl,
+    outputEl,
+    state, // "loading" | "success" | "error" | "idle"
+    content = "",
+    errorMessage = "",
+    retryFn = null,
+  } = config;
+
+  if (state === "loading") {
+    if (btnEl) btnEl.disabled = true;
+    if (loadingEl) loadingEl.classList.remove("hidden");
+    if (outputEl) {
+      outputEl.classList.add("hidden");
+      outputEl.innerHTML = "";
+    }
+  } else if (state === "success") {
+    if (loadingEl) loadingEl.classList.add("hidden");
+    if (btnEl) btnEl.disabled = false;
+    if (outputEl) {
+      renderContent(outputEl, content);
+      outputEl.classList.remove("hidden");
+    }
+  } else if (state === "error") {
+    if (loadingEl) loadingEl.classList.add("hidden");
+    if (btnEl) btnEl.disabled = false;
+    if (outputEl) {
+      outputEl.innerHTML = "";
+      const errorCard = document.createElement("div");
+      errorCard.className = "ai-panel-error-card";
+
+      let cleanDesc = errorMessage || "The AI request could not be completed. Please check your network and API key settings.";
+      const lower = cleanDesc.toLowerCase();
+      if (lower.includes("timeout") || lower.includes("aborted")) {
+        cleanDesc = "The request timed out. The server or AI model took too long to respond. Please try again.";
+      } else if (lower.includes("401") || lower.includes("403") || lower.includes("api key")) {
+        cleanDesc = "Invalid or missing API key. Please check the GEMINI_API_KEY in your .env file.";
+      }
+
+      errorCard.innerHTML = `
+        <div class="ai-error-header">
+          <span class="ai-error-icon">⚠️</span>
+          <span class="ai-error-title">Couldn't get feedback — try again</span>
+        </div>
+        <p class="ai-error-desc">${escapeHtml(cleanDesc)}</p>
+        ${retryFn ? `<button type="button" class="secondary-btn ai-retry-btn">🔄 Retry</button>` : ""}
+      `;
+
+      if (retryFn) {
+        const retryBtn = errorCard.querySelector(".ai-retry-btn");
+        if (retryBtn) {
+          retryBtn.addEventListener("click", () => {
+            retryFn();
+          });
+        }
+      }
+
+      outputEl.appendChild(errorCard);
+      outputEl.classList.remove("hidden");
+    }
+  } else if (state === "idle") {
+    if (loadingEl) loadingEl.classList.add("hidden");
+    if (btnEl) btnEl.disabled = false;
+    if (outputEl) {
+      outputEl.classList.add("hidden");
+      outputEl.innerHTML = "";
+    }
+  }
+}
+
 // ---- Inline Input Validation Helpers ----
 function showFieldError(fieldEl, errorEl, message) {
   if (!fieldEl) return;
@@ -240,8 +323,8 @@ function clearFieldError(fieldEl, errorEl) {
   }
 }
 
-// ---- API Call with 25s Timeout via AbortController ----
-async function callApi(endpoint, payload, timeoutMs = 25000) {
+// ---- API Call with 60s Timeout via AbortController ----
+async function callApi(endpoint, payload, timeoutMs = 60000) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -399,7 +482,7 @@ writeRemoveImgBtn.addEventListener("click", () => {
   writeImagePreview.classList.add("hidden");
 });
 
-writeBtn.addEventListener("click", async () => {
+async function handleWriteCode() {
   const writeDescEl = document.getElementById("write-description");
   const writeErrorEl = document.getElementById("write-error-msg");
   const description = writeDescEl.value.trim();
@@ -411,9 +494,12 @@ writeBtn.addEventListener("click", async () => {
   }
   clearFieldError(writeDescEl, writeErrorEl);
 
-  writeBtn.disabled = true;
-  writeOutput.classList.add("hidden");
-  writeLoading.classList.remove("hidden");
+  setAiPanelState({
+    btnEl: writeBtn,
+    loadingEl: writeLoading,
+    outputEl: writeOutput,
+    state: "loading",
+  });
 
   try {
     let imageData = null;
@@ -422,15 +508,30 @@ writeBtn.addEventListener("click", async () => {
     }
     const payload = { description, language, image_data: imageData };
     const result = await callApi("/api/write", payload);
-    renderContent(writeOutput, result);
-    writeOutput.classList.remove("hidden");
+    setAiPanelState({
+      btnEl: writeBtn,
+      loadingEl: writeLoading,
+      outputEl: writeOutput,
+      state: "success",
+      content: result,
+    });
   } catch (err) {
     handleApiError(err);
+    setAiPanelState({
+      btnEl: writeBtn,
+      loadingEl: writeLoading,
+      outputEl: writeOutput,
+      state: "error",
+      errorMessage: err.message,
+      retryFn: handleWriteCode,
+    });
   } finally {
     writeLoading.classList.add("hidden");
     writeBtn.disabled = false;
   }
-});
+}
+
+writeBtn.addEventListener("click", handleWriteCode);
 
 // ---- Debug Code ----
 let debugImageFile = null;
@@ -571,7 +672,7 @@ function updateDetectedLanguage() {
 debugCode.addEventListener("input", updateDetectedLanguage);
 debugCode.addEventListener("paste", () => setTimeout(updateDetectedLanguage, 10));
 
-debugBtn.addEventListener("click", async () => {
+async function handleDebugCode() {
   const debugErrorEl = document.getElementById("debug-error-msg");
   const code = debugCode.value.trim();
   const errorMessage = document.getElementById("debug-error").value.trim();
@@ -583,9 +684,12 @@ debugBtn.addEventListener("click", async () => {
   }
   clearFieldError(debugCode, debugErrorEl);
 
-  debugBtn.disabled = true;
-  debugOutput.classList.add("hidden");
-  debugLoading.classList.remove("hidden");
+  setAiPanelState({
+    btnEl: debugBtn,
+    loadingEl: debugLoading,
+    outputEl: debugOutput,
+    state: "loading",
+  });
 
   try {
     let imageData = null;
@@ -599,15 +703,30 @@ debugBtn.addEventListener("click", async () => {
       image_data: imageData,
     };
     const result = await callApi("/api/debug", payload);
-    renderContent(debugOutput, result);
-    debugOutput.classList.remove("hidden");
+    setAiPanelState({
+      btnEl: debugBtn,
+      loadingEl: debugLoading,
+      outputEl: debugOutput,
+      state: "success",
+      content: result,
+    });
   } catch (err) {
     handleApiError(err);
+    setAiPanelState({
+      btnEl: debugBtn,
+      loadingEl: debugLoading,
+      outputEl: debugOutput,
+      state: "error",
+      errorMessage: err.message,
+      retryFn: handleDebugCode,
+    });
   } finally {
     debugLoading.classList.add("hidden");
     debugBtn.disabled = false;
   }
-});
+}
+
+debugBtn.addEventListener("click", handleDebugCode);
 
 // ---- Explain Tab ----
 const explainTopicSelect = document.getElementById("explain-topic-select");
@@ -650,16 +769,32 @@ explainBtn.addEventListener("click", async () => {
   const depth    = document.querySelector("input[name='explain-depth']:checked").value;
   const language = document.getElementById("explain-language").value;
 
-  explainBtn.disabled = true;
-  explainOutput.classList.add("hidden");
-  explainLoading.classList.remove("hidden");
+  setAiPanelState({
+    btnEl: explainBtn,
+    loadingEl: explainLoading,
+    outputEl: explainOutput,
+    state: "loading",
+  });
 
   try {
     const result = await callApi("/api/explain", { topic, depth, language });
-    renderContent(explainOutput, result);
-    explainOutput.classList.remove("hidden");
+    setAiPanelState({
+      btnEl: explainBtn,
+      loadingEl: explainLoading,
+      outputEl: explainOutput,
+      state: "success",
+      content: result,
+    });
   } catch (err) {
     handleApiError(err);
+    setAiPanelState({
+      btnEl: explainBtn,
+      loadingEl: explainLoading,
+      outputEl: explainOutput,
+      state: "error",
+      errorMessage: err.message,
+      retryFn: () => explainBtn.click(),
+    });
   } finally {
     explainLoading.classList.add("hidden");
     explainBtn.disabled = false;
@@ -696,11 +831,15 @@ const lcReviewBtn         = document.getElementById("lc-review-btn");
 const lcReviewLoading     = document.getElementById("lc-review-loading");
 const lcReviewOutput      = document.getElementById("lc-review-output");
 
-// Runner elements
+// Runner & Language Elements
 const lcRunnerSection     = document.getElementById("lc-runner-section");
 const lcCodeEditor        = document.getElementById("lc-code-editor");
 const lcCodeErrorEl       = document.getElementById("lc-code-error-msg");
+const lcCodeLang          = document.getElementById("lc-code-lang");
 const lcRunBtn            = document.getElementById("lc-run-btn");
+const lcAiHelpBtn         = document.getElementById("lc-ai-help-btn");
+const lcHelpLoading       = document.getElementById("lc-help-loading");
+const lcHelpOutput        = document.getElementById("lc-help-output");
 const lcResetCodeBtn      = document.getElementById("lc-reset-code-btn");
 const lcRunLoading        = document.getElementById("lc-run-loading");
 const lcTestResults       = document.getElementById("lc-test-results");
@@ -708,10 +847,34 @@ const testSummaryBadge    = document.getElementById("test-summary-badge");
 const testRuntimeLabel    = document.getElementById("test-runtime-label");
 const testCasesList       = document.getElementById("test-cases-list");
 const testStdout          = document.getElementById("test-stdout");
+const lcTemplateLangLabel = document.getElementById("lc-template-lang-label");
 
 let currentProblem = null;
 let currentHints   = [];
 let currentHintIdx = 0;
+
+function getStarterTemplate(problem, language = "python") {
+  if (!problem) return "";
+  const title = (problem.title || "Solution").trim();
+  const cleanWords = title.replace(/[^a-zA-Z0-9 ]/g, "").split(/\s+/).filter(Boolean);
+  const methodName = cleanWords.length > 0
+    ? (cleanWords[0].toLowerCase() + cleanWords.slice(1).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(""))
+    : "solve";
+
+  if (language === "python") {
+    if (problem.template_py && problem.template_py.trim()) {
+      return problem.template_py.trim();
+    }
+    return `class Solution:\n    def ${methodName}(self, *args):\n        # Write your Python solution here\n        pass\n`;
+  } else if (language === "cpp") {
+    return `#include <iostream>\n#include <vector>\n#include <string>\n#include <unordered_map>\n#include <algorithm>\nusing namespace std;\n\nclass Solution {\npublic:\n    // Write your C++ solution here\n    void ${methodName}() {\n        \n    }\n};\n`;
+  } else if (language === "java") {
+    return `import java.util.*;\n\nclass Solution {\n    // Write your Java solution here\n    public void ${methodName}() {\n        \n    }\n}\n`;
+  } else if (language === "javascript") {
+    return `/**\n * Solution for ${title}\n * @return {any}\n */\nvar ${methodName} = function() {\n    // Write your JavaScript solution here\n};\n`;
+  }
+  return `// Write your solution here\n`;
+}
 
 async function fetchLeetCodeProblem() {
   const num = parseInt(lcNumberInput.value, 10);
@@ -731,7 +894,7 @@ async function fetchLeetCodeProblem() {
   lcTestResults.classList.add("hidden");
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 25000);
+  const timer = setTimeout(() => controller.abort(), 45000);
 
   try {
     const res = await fetch(`/api/leetcode/${num}`, { signal: controller.signal });
@@ -779,12 +942,16 @@ async function fetchLeetCodeProblem() {
       lcHintsSection.classList.add("hidden");
     }
 
-    // Handle starter template
-    const templateCode = (data.template_py && data.template_py.trim()) ? data.template_py : "class Solution:\n    # Write your solution here\n    pass";
+    // Handle starter template based on selected language
+    const currentLang = lcCodeLang ? lcCodeLang.value : "python";
+    const templateCode = getStarterTemplate(data, currentLang);
     lcTemplateSection.classList.remove("hidden");
     lcTemplate.textContent = templateCode;
+    if (lcTemplateLangLabel) {
+      lcTemplateLangLabel.textContent = `${currentLang.toUpperCase()} Starter`;
+    }
 
-    // Pre-populate code editor for runner
+    // Pre-populate code editor
     lcCodeEditor.value = templateCode;
 
     // Show card, approach, and code runner sections
@@ -847,19 +1014,34 @@ lcCopyTemplate.addEventListener("click", async () => {
   }
 });
 
-// Reset editor to starter template
+// Reset editor to starter template for current language
 lcResetCodeBtn.addEventListener("click", () => {
   if (!currentProblem) return;
-  const starter = (currentProblem.template_py && currentProblem.template_py.trim())
-    ? currentProblem.template_py
-    : "class Solution:\n    # Write your solution here\n    pass";
+  const lang = lcCodeLang ? lcCodeLang.value : "python";
+  const starter = getStarterTemplate(currentProblem, lang);
   lcCodeEditor.value = starter;
   clearFieldError(lcCodeEditor, lcCodeErrorEl);
-  showToast("Reset code to starter template", "info");
+  showToast(`Reset code to ${lang.toUpperCase()} starter template`, "info");
 });
 
+// Language dropdown change
+if (lcCodeLang) {
+  lcCodeLang.addEventListener("change", () => {
+    if (!currentProblem) return;
+    const lang = lcCodeLang.value;
+    const starter = getStarterTemplate(currentProblem, lang);
+    lcCodeEditor.value = starter;
+    lcTemplate.textContent = starter;
+    if (lcTemplateLangLabel) {
+      lcTemplateLangLabel.textContent = `${lang.toUpperCase()} Starter`;
+    }
+    clearFieldError(lcCodeEditor, lcCodeErrorEl);
+    showToast(`Switched editor to ${lang.toUpperCase()}`, "info");
+  });
+}
+
 // Review approach click
-lcReviewBtn.addEventListener("click", async () => {
+async function handleLcReview() {
   const approach = lcApproach.value.trim();
   if (!approach) {
     showFieldError(lcApproach, lcApproachErrorEl, "Please describe your approach first before reviewing.");
@@ -872,9 +1054,12 @@ lcReviewBtn.addEventListener("click", async () => {
     return;
   }
 
-  lcReviewBtn.disabled = true;
-  lcReviewOutput.classList.add("hidden");
-  lcReviewLoading.classList.remove("hidden");
+  setAiPanelState({
+    btnEl: lcReviewBtn,
+    loadingEl: lcReviewLoading,
+    outputEl: lcReviewOutput,
+    state: "loading",
+  });
 
   try {
     const payload = {
@@ -884,21 +1069,94 @@ lcReviewBtn.addEventListener("click", async () => {
       approach: approach,
     };
     const result = await callApi("/api/leetcode/review", payload);
-    renderContent(lcReviewOutput, result);
-    lcReviewOutput.classList.remove("hidden");
+    setAiPanelState({
+      btnEl: lcReviewBtn,
+      loadingEl: lcReviewLoading,
+      outputEl: lcReviewOutput,
+      state: "success",
+      content: result,
+    });
   } catch (err) {
     handleApiError(err);
+    setAiPanelState({
+      btnEl: lcReviewBtn,
+      loadingEl: lcReviewLoading,
+      outputEl: lcReviewOutput,
+      state: "error",
+      errorMessage: err.message,
+      retryFn: handleLcReview,
+    });
   } finally {
     lcReviewLoading.classList.add("hidden");
     lcReviewBtn.disabled = false;
   }
-});
+}
 
-// Run Python Code against Test Cases
+lcReviewBtn.addEventListener("click", handleLcReview);
+
+// In-Tab AI Code Helper
+async function handleLcAiHelp() {
+  const code = lcCodeEditor.value.trim();
+  if (!code) {
+    showFieldError(lcCodeEditor, lcCodeErrorEl, "Please write or paste your code before requesting AI help.");
+    return;
+  }
+  clearFieldError(lcCodeEditor, lcCodeErrorEl);
+
+  if (!currentProblem) {
+    showToast("Please fetch a problem first.", "warning");
+    return;
+  }
+
+  const language = lcCodeLang ? lcCodeLang.value : "python";
+
+  setAiPanelState({
+    btnEl: lcAiHelpBtn,
+    loadingEl: lcHelpLoading,
+    outputEl: lcHelpOutput,
+    state: "loading",
+  });
+
+  try {
+    const payload = {
+      number: currentProblem.number,
+      title: currentProblem.title,
+      language: language,
+      code: code,
+    };
+    const result = await callApi("/api/leetcode/code-help", payload);
+    setAiPanelState({
+      btnEl: lcAiHelpBtn,
+      loadingEl: lcHelpLoading,
+      outputEl: lcHelpOutput,
+      state: "success",
+      content: result,
+    });
+  } catch (err) {
+    handleApiError(err);
+    setAiPanelState({
+      btnEl: lcAiHelpBtn,
+      loadingEl: lcHelpLoading,
+      outputEl: lcHelpOutput,
+      state: "error",
+      errorMessage: err.message,
+      retryFn: handleLcAiHelp,
+    });
+  } finally {
+    lcHelpLoading.classList.add("hidden");
+    if (lcAiHelpBtn) lcAiHelpBtn.disabled = false;
+  }
+}
+
+if (lcAiHelpBtn) {
+  lcAiHelpBtn.addEventListener("click", handleLcAiHelp);
+}
+
+// Run Code against Test Cases
 lcRunBtn.addEventListener("click", async () => {
   const code = lcCodeEditor.value.trim();
   if (!code) {
-    showFieldError(lcCodeEditor, lcCodeErrorEl, "Please write or paste your Python solution before running.");
+    showFieldError(lcCodeEditor, lcCodeErrorEl, "Please write or paste your solution before running.");
     return;
   }
   clearFieldError(lcCodeEditor, lcCodeErrorEl);
@@ -916,6 +1174,7 @@ lcRunBtn.addEventListener("click", async () => {
     const payload = {
       code,
       number: currentProblem.number,
+      language: lcCodeLang ? lcCodeLang.value : "python",
     };
     const resp = await callApi("/api/leetcode/run", payload);
 
@@ -984,6 +1243,19 @@ lcRunBtn.addEventListener("click", async () => {
     }
   } catch (err) {
     handleApiError(err);
+    testSummaryBadge.textContent = "Execution Error ❌";
+    testSummaryBadge.className = "test-summary-badge failed";
+    testRuntimeLabel.textContent = "";
+    testCasesList.innerHTML = `
+      <div class="tc-card failed">
+        <div class="tc-header">
+          <span>Error</span>
+          <span class="tc-badge failed">Failed</span>
+        </div>
+        <div class="tc-io-val error">${escapeHtml(err.message || "Execution request failed. Please try again.")}</div>
+      </div>
+    `;
+    lcTestResults.classList.remove("hidden");
   } finally {
     lcRunLoading.classList.add("hidden");
     lcRunBtn.disabled = false;
